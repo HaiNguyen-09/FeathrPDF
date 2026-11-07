@@ -1,0 +1,11 @@
+#include <windows.h>
+#include "resource.h"
+
+// 1: Primary Application Icon (App Icon for FeathrPDF.exe)
+IDI_APP_ICON ICON "app.ico"
+
+// 2: Document File Icon for .pdf files in Windows Explorer
+IDI_DOC_ICON ICON "pdf_doc.ico"
+
+// Common Controls & DPI Awareness Manifest
+1 24 "app.manifest"
