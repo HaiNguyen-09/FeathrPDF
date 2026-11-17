@@ -7,10 +7,40 @@
 #include <cmath>
 #include <shlwapi.h>
 #include <uxtheme.h>
+#include <dwmapi.h>
 
 static HFONT g_hRibbonFont = NULL;
 static HFONT g_hRibbonSmallFont = NULL;
 static HFONT g_hRibbonBoldFont = NULL;
+static HWND g_hRibbonTooltip = NULL;
+static HFONT g_hTooltipBoldFont = NULL;
+static HFONT g_hTooltipNormalFont = NULL;
+
+static LRESULT CALLBACK RibbonBtnSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
+    switch (msg) {
+    case WM_MOUSEMOVE: {
+        if (!IsWindowEnabled(hWnd)) {
+            if (g_hRibbonTooltip) {
+                SendMessageW(g_hRibbonTooltip, TTM_POP, 0, 0);
+            }
+            break;
+        }
+        TRACKMOUSEEVENT tme = { sizeof(TRACKMOUSEEVENT) };
+        tme.cbSize = sizeof(TRACKMOUSEEVENT);
+        tme.dwFlags = TME_LEAVE;
+        tme.hwndTrack = hWnd;
+        TrackMouseEvent(&tme);
+        break;
+    }
+    case WM_MOUSELEAVE: {
+        if (g_hRibbonTooltip) {
+            SendMessageW(g_hRibbonTooltip, TTM_POP, 0, 0);
+        }
+        break;
+    }
+    }
+    return DefSubclassProc(hWnd, msg, wParam, lParam);
+}
 
 // Row 1 buttons
 static HWND g_hBtnFile = NULL;
@@ -24,6 +54,101 @@ static HWND g_hBtnToolPen = NULL;
 static HWND g_hBtnToolPenDrop = NULL;
 static HWND g_hBtnToolEraser = NULL;
 static HWND g_hBtnCollapse = NULL;
+
+static bool GetButtonTooltipText(HWND hBtn, std::wstring& line1, std::wstring& line2) {
+    if (hBtn == g_hBtnUndo) {
+        line1 = L"Ctrl+Z";
+        line2 = L"Revert the last annotation or page edit";
+        return true;
+    }
+    if (hBtn == g_hBtnRedo) {
+        line1 = L"Ctrl+Y";
+        line2 = L"Reapply the previously undone action";
+        return true;
+    }
+    if (hBtn == g_hBtnNewPage) {
+        line1 = L"Ctrl+Shift+N";
+        line2 = L"Insert a blank page or merge another PDF";
+        return true;
+    }
+    if (hBtn == g_hBtnDelPage) {
+        line1 = L"Del";
+        line2 = L"Remove the currently selected pages";
+        return true;
+    }
+    if (hBtn == g_hBtnToolHL) {
+        line1 = L"H";
+        line2 = L"Mark and emphasize text passages";
+        return true;
+    }
+    if (hBtn == g_hBtnToolPen) {
+        line1 = L"P";
+        line2 = L"Draw freehand notes or sketches on the page";
+        return true;
+    }
+    if (hBtn == g_hBtnToolEraser) {
+        line1 = L"E";
+        line2 = L"Click or drag to remove highlights and ink strokes";
+        return true;
+    }
+    return false;
+}
+
+static LRESULT CALLBACK TooltipWndSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
+    switch (msg) {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        PDFApp& app = PDFApp::Instance();
+        bool isDark = app.IsDarkMode();
+
+        COLORREF bgCol = isDark ? RGB(30, 30, 32) : RGB(244, 244, 245);
+        COLORREF text1Col = isDark ? RGB(244, 244, 245) : RGB(24, 24, 27);
+        COLORREF text2Col = isDark ? RGB(161, 161, 170) : RGB(113, 113, 122);
+
+        HBRUSH hBr = CreateSolidBrush(bgCol);
+        FillRect(hdc, &rc, hBr);
+        DeleteObject(hBr);
+
+        HWND hTargetBtn = (HWND)GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+        std::wstring line1Text, line2Text;
+        if (!hTargetBtn || !GetButtonTooltipText(hTargetBtn, line1Text, line2Text)) {
+            WCHAR szText[256] = { 0 };
+            GetWindowTextW(hWnd, szText, 256);
+            std::wstring str(szText);
+            size_t nl = str.find(L'\n');
+            line1Text = (nl != std::wstring::npos) ? str.substr(0, nl) : str;
+            line2Text = (nl != std::wstring::npos) ? str.substr(nl + 1) : L"";
+        }
+
+        SetBkMode(hdc, TRANSPARENT);
+
+        RECT rc1 = { 0, 0, 0, 0 };
+        HFONT hOld = (HFONT)SelectObject(hdc, g_hTooltipBoldFont);
+        DrawTextW(hdc, line1Text.c_str(), -1, &rc1, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+
+        SetTextColor(hdc, text1Col);
+        RECT rcLine1 = { 12, 8, rc.right - 12, 8 + rc1.bottom };
+        DrawTextW(hdc, line1Text.c_str(), -1, &rcLine1, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+
+        if (!line2Text.empty()) {
+            SelectObject(hdc, g_hTooltipNormalFont);
+            SetTextColor(hdc, text2Col);
+            RECT rcLine2 = { 12, 8 + rc1.bottom + 4, rc.right - 12, rc.bottom };
+            DrawTextW(hdc, line2Text.c_str(), -1, &rcLine2, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+        }
+        SelectObject(hdc, hOld);
+
+        EndPaint(hWnd, &ps);
+        return 0;
+    }
+    }
+    return DefSubclassProc(hWnd, msg, wParam, lParam);
+}
 
 // Row 2 controls
 static HWND g_hBtnToggleSide = NULL;
@@ -82,7 +207,7 @@ static LRESULT CALLBACK RibbonWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         g_hBtnToolHLDrop    = MakeBtn(L"▾", IDC_RIBBON_BTN_TOOLHL_DROP, 518, 6, 18, 26);
         g_hBtnToolPen       = MakeBtn(L"✏️ Draw", IDC_RIBBON_BTN_TOOLPEN, 540, 6, 65, 26);
         g_hBtnToolPenDrop   = MakeBtn(L"▾", IDC_RIBBON_BTN_TOOLPEN_DROP, 606, 6, 18, 26);
-        g_hBtnToolEraser    = MakeBtn(L"🧹 Eraser (E)", IDC_RIBBON_BTN_TOOLERASER, 628, 6, 85, 26);
+        g_hBtnToolEraser    = MakeBtn(L"🧹 Eraser", IDC_RIBBON_BTN_TOOLERASER, 628, 6, 85, 26);
 
         // Collapse / Expand toggle button at top right
         g_hBtnCollapse      = MakeBtn(L"▲ Hide Ribbon", IDC_RIBBON_BTN_COLLAPSE, 940, 6, 95, 26);
@@ -116,6 +241,51 @@ static LRESULT CALLBACK RibbonWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         SendMessageW(g_hLblZoomVal, WM_SETFONT, (WPARAM)g_hRibbonFont, TRUE);
 
         g_hBtnFitWidth = MakeBtn(L"Fit Width", IDC_RIBBON_BTN_FITWIDTH, 585, 42, 75, 26);
+
+        // Tooltip Setup for Row 1 buttons
+        if (!g_hTooltipBoldFont) {
+            g_hTooltipBoldFont = CreateFontW(13, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            g_hTooltipNormalFont = CreateFontW(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        }
+
+        g_hRibbonTooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, NULL,
+            WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
+            CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+            hWnd, NULL, hInst, NULL);
+        if (g_hRibbonTooltip) {
+            DWORD pref = 3; // DWMWCP_ROUNDSMALL
+            DwmSetWindowAttribute(g_hRibbonTooltip, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &pref, sizeof(pref));
+            SetWindowSubclass(g_hRibbonTooltip, TooltipWndSubclassProc, 101, 0);
+
+            SendMessageW(g_hRibbonTooltip, TTM_SETMAXTIPWIDTH, 0, 400);
+            SendMessageW(g_hRibbonTooltip, TTM_SETDELAYTIME, TTDT_INITIAL, 450);
+            SendMessageW(g_hRibbonTooltip, TTM_SETDELAYTIME, TTDT_RESHOW, 80);
+            SendMessageW(g_hRibbonTooltip, TTM_SETDELAYTIME, TTDT_AUTOPOP, 10000);
+            SendMessageW(g_hRibbonTooltip, WM_SETFONT, (WPARAM)g_hTooltipNormalFont, TRUE);
+
+            auto AddBtnTooltip = [&](HWND hBtn, int id, LPCWSTR text) {
+                if (!hBtn) return;
+                TOOLINFOW ti = { sizeof(TOOLINFOW) };
+                ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+                ti.hwnd = hWnd;
+                ti.uId = (UINT_PTR)hBtn;
+                ti.lpszText = (LPWSTR)text;
+                SendMessageW(g_hRibbonTooltip, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+                SetWindowSubclass(hBtn, RibbonBtnSubclassProc, (UINT_PTR)id, 0);
+            };
+
+            AddBtnTooltip(g_hBtnUndo, IDC_RIBBON_BTN_UNDO, L"Ctrl+Z\nRevert the last annotation or page edit");
+            AddBtnTooltip(g_hBtnRedo, IDC_RIBBON_BTN_REDO, L"Ctrl+Y\nReapply the previously undone action");
+            AddBtnTooltip(g_hBtnNewPage, IDC_RIBBON_BTN_NEWPAGE, L"Ctrl+Shift+N\nInsert a blank page or merge another PDF");
+            AddBtnTooltip(g_hBtnDelPage, IDC_RIBBON_BTN_DELPAGE, L"Del\nRemove the currently selected pages");
+            AddBtnTooltip(g_hBtnToolHL, IDC_RIBBON_BTN_TOOLHL, L"H\nMark and emphasize text passages");
+            AddBtnTooltip(g_hBtnToolPen, IDC_RIBBON_BTN_TOOLPEN, L"P\nDraw freehand notes or sketches on the page");
+            AddBtnTooltip(g_hBtnToolEraser, IDC_RIBBON_BTN_TOOLERASER, L"E\nClick or drag to remove highlights and ink strokes");
+        }
 
         return 0;
     }
@@ -365,9 +535,7 @@ static LRESULT CALLBACK RibbonWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
 
         case IDC_RIBBON_BTN_TOOLHL: {
             if (app.GetTool() == TOOL_HIGHLIGHT) {
-                RECT rc;
-                GetWindowRect(g_hBtnToolHL, &rc);
-                ToolSettingsPopup::Show(app.GetMainWindow(), TOOL_HIGHLIGHT, rc.left, rc.bottom + 2);
+                app.SetTool(TOOL_PAN);
             } else {
                 app.SetTool(TOOL_HIGHLIGHT);
             }
@@ -382,9 +550,7 @@ static LRESULT CALLBACK RibbonWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         }
         case IDC_RIBBON_BTN_TOOLPEN: {
             if (app.GetTool() == TOOL_PEN) {
-                RECT rc;
-                GetWindowRect(g_hBtnToolPen, &rc);
-                ToolSettingsPopup::Show(app.GetMainWindow(), TOOL_PEN, rc.left, rc.bottom + 2);
+                app.SetTool(TOOL_PAN);
             } else {
                 app.SetTool(TOOL_PEN);
             }
@@ -472,6 +638,112 @@ static LRESULT CALLBACK RibbonWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
 
     case WM_NOTIFY: {
         LPNMHDR pnm = (LPNMHDR)lParam;
+        if (pnm && pnm->hwndFrom == g_hRibbonTooltip) {
+            if (pnm->code == TTN_SHOW) {
+                TOOLINFOW ti = { sizeof(TOOLINFOW) };
+                if (SendMessageW(g_hRibbonTooltip, TTM_GETCURRENTTOOLW, 0, (LPARAM)&ti)) {
+                    HWND hTargetBtn = (HWND)ti.uId;
+                    if (!hTargetBtn || !IsWindow(hTargetBtn) || !IsWindowEnabled(hTargetBtn)) {
+                        SendMessageW(g_hRibbonTooltip, TTM_POP, 0, 0);
+                        return TRUE;
+                    }
+
+                    SetWindowLongPtrW(g_hRibbonTooltip, GWLP_USERDATA, (LONG_PTR)hTargetBtn);
+
+                    DWORD pref = 3; // DWMWCP_ROUNDSMALL
+                    DwmSetWindowAttribute(g_hRibbonTooltip, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &pref, sizeof(pref));
+
+                    std::wstring line1Text, line2Text;
+                    if (!GetButtonTooltipText(hTargetBtn, line1Text, line2Text)) {
+                        WCHAR szText[256] = { 0 };
+                        GetWindowTextW(g_hRibbonTooltip, szText, 256);
+                        std::wstring str(szText);
+                        size_t nl = str.find(L'\n');
+                        line1Text = (nl != std::wstring::npos) ? str.substr(0, nl) : str;
+                        line2Text = (nl != std::wstring::npos) ? str.substr(nl + 1) : L"";
+                    }
+
+                    HDC hdc = GetDC(g_hRibbonTooltip);
+                    RECT rc1 = { 0, 0, 0, 0 };
+                    RECT rc2 = { 0, 0, 0, 0 };
+
+                    HFONT hOld = (HFONT)SelectObject(hdc, g_hTooltipBoldFont);
+                    DrawTextW(hdc, line1Text.c_str(), -1, &rc1, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+
+                    SelectObject(hdc, g_hTooltipNormalFont);
+                    DrawTextW(hdc, line2Text.c_str(), -1, &rc2, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+                    SelectObject(hdc, hOld);
+                    ReleaseDC(g_hRibbonTooltip, hdc);
+
+                    int finalW = (rc1.right > rc2.right ? rc1.right : rc2.right) + 24;
+                    int finalH = rc1.bottom + rc2.bottom + 20;
+
+                    RECT rcBtn;
+                    GetWindowRect(hTargetBtn, &rcBtn);
+                    int posX = rcBtn.left + (rcBtn.right - rcBtn.left - finalW) / 2;
+                    int posY = rcBtn.bottom + 6;
+
+                    HMONITOR hMon = MonitorFromWindow(hTargetBtn, MONITOR_DEFAULTTONEAREST);
+                    MONITORINFO mi = { sizeof(MONITORINFO) };
+                    GetMonitorInfoW(hMon, &mi);
+                    if (posX < mi.rcWork.left + 8) posX = mi.rcWork.left + 8;
+                    if (posX + finalW > mi.rcWork.right - 8) posX = mi.rcWork.right - 8 - finalW;
+
+                    SetWindowPos(g_hRibbonTooltip, HWND_TOP, posX, posY, finalW, finalH,
+                        SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                    return TRUE;
+                }
+            } else if (pnm->code == NM_CUSTOMDRAW) {
+                LPNMTTCUSTOMDRAW lpcd = (LPNMTTCUSTOMDRAW)lParam;
+                if (lpcd->nmcd.dwDrawStage == CDDS_PREPAINT) {
+                    HDC hdc = lpcd->nmcd.hdc;
+                    RECT rc = lpcd->nmcd.rc;
+                    PDFApp& app = PDFApp::Instance();
+                    bool isDark = app.IsDarkMode();
+
+                    COLORREF bgCol = isDark ? RGB(30, 30, 32) : RGB(244, 244, 245);
+                    COLORREF text1Col = isDark ? RGB(244, 244, 245) : RGB(24, 24, 27);
+                    COLORREF text2Col = isDark ? RGB(161, 161, 170) : RGB(113, 113, 122);
+
+                    // XÓA BỎ hoàn toàn các lệnh vẽ viền GDI (FrameRect, Rectangle, RoundRect).
+                    // Chỉ dùng FillRect tô phẳng toàn bộ nền bằng màu chủ đạo.
+                    HBRUSH hBr = CreateSolidBrush(bgCol);
+                    FillRect(hdc, &rc, hBr);
+                    DeleteObject(hBr);
+
+                    HWND hTargetBtn = (HWND)GetWindowLongPtrW(g_hRibbonTooltip, GWLP_USERDATA);
+                    std::wstring line1Text, line2Text;
+                    if (!hTargetBtn || !GetButtonTooltipText(hTargetBtn, line1Text, line2Text)) {
+                        WCHAR szText[256] = { 0 };
+                        GetWindowTextW(g_hRibbonTooltip, szText, 256);
+                        std::wstring str(szText);
+                        size_t nl = str.find(L'\n');
+                        line1Text = (nl != std::wstring::npos) ? str.substr(0, nl) : str;
+                        line2Text = (nl != std::wstring::npos) ? str.substr(nl + 1) : L"";
+                    }
+
+                    SetBkMode(hdc, TRANSPARENT);
+
+                    RECT rc1 = { 0, 0, 0, 0 };
+                    HFONT hOld = (HFONT)SelectObject(hdc, g_hTooltipBoldFont);
+                    DrawTextW(hdc, line1Text.c_str(), -1, &rc1, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+
+                    SetTextColor(hdc, text1Col);
+                    RECT rcLine1 = { 12, 8, rc.right - 12, 8 + rc1.bottom };
+                    DrawTextW(hdc, line1Text.c_str(), -1, &rcLine1, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+
+                    if (!line2Text.empty()) {
+                        SelectObject(hdc, g_hTooltipNormalFont);
+                        SetTextColor(hdc, text2Col);
+                        RECT rcLine2 = { 12, 8 + rc1.bottom + 4, rc.right - 12, rc.bottom };
+                        DrawTextW(hdc, line2Text.c_str(), -1, &rcLine2, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+                    }
+                    SelectObject(hdc, hOld);
+                    return CDRF_SKIPDEFAULT;
+                }
+                return CDRF_DODEFAULT;
+            }
+        }
         if (pnm && pnm->hwndFrom == g_hSliderZoom && pnm->code == NM_CUSTOMDRAW) {
             LPNMCUSTOMDRAW lpcd = (LPNMCUSTOMDRAW)lParam;
             PDFApp& app = PDFApp::Instance();
@@ -548,6 +820,12 @@ static LRESULT CALLBACK RibbonWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         DeleteObject(hPen);
 
         EndPaint(hWnd, &ps);
+        return 0;
+    }
+
+    case WM_DESTROY: {
+        if (g_hTooltipBoldFont) { DeleteObject(g_hTooltipBoldFont); g_hTooltipBoldFont = NULL; }
+        if (g_hTooltipNormalFont) { DeleteObject(g_hTooltipNormalFont); g_hTooltipNormalFont = NULL; }
         return 0;
     }
     }

@@ -58,17 +58,18 @@ static LRESULT CALLBACK MovePosDlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
         state = (MovePosDialogState*)cs->lpCreateParams;
         SetWindowLongPtrW(hWnd, GWLP_USERDATA, (LONG_PTR)state);
 
-        if (PDFApp::Instance().IsDarkMode()) {
-            BOOL useDark = TRUE;
-            if (FAILED(DwmSetWindowAttribute(hWnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &useDark, sizeof(useDark)))) {
-                DwmSetWindowAttribute(hWnd, 19 /* DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 */, &useDark, sizeof(useDark));
-            }
-            COLORREF captionColor = RGB(24, 24, 27);
-            COLORREF captionText = RGB(244, 244, 245);
-            DwmSetWindowAttribute(hWnd, 35, &captionColor, sizeof(captionColor));
-            DwmSetWindowAttribute(hWnd, 36, &captionText, sizeof(captionText));
-            SetWindowPos(hWnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+        bool isDark = PDFApp::Instance().IsDarkMode();
+        BOOL useDark = isDark ? TRUE : FALSE;
+        if (FAILED(DwmSetWindowAttribute(hWnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &useDark, sizeof(useDark)))) {
+            DwmSetWindowAttribute(hWnd, 19 /* DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 */, &useDark, sizeof(useDark));
         }
+        COLORREF captionColor = isDark ? RGB(26, 26, 28) : RGB(244, 244, 245);
+        COLORREF captionText = isDark ? RGB(244, 244, 245) : RGB(24, 24, 27);
+        DwmSetWindowAttribute(hWnd, 35, &captionColor, sizeof(captionColor));
+        DwmSetWindowAttribute(hWnd, 36, &captionText, sizeof(captionText));
+        DWORD roundPref = 2; // DWMWCP_ROUND
+        DwmSetWindowAttribute(hWnd, 33, &roundPref, sizeof(roundPref));
+        SetWindowPos(hWnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
 
         HFONT hFont = CreateFontW(15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -85,11 +86,11 @@ static LRESULT CALLBACK MovePosDlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
         SendMessageW(state->hEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
         SendMessageW(state->hEdit, EM_SETSEL, 0, -1);
 
-        HWND hBtnOk = CreateWindowW(L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | WS_TABSTOP,
+        HWND hBtnOk = CreateWindowW(L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP,
             105, 88, 90, 28, hWnd, (HMENU)IDOK, cs->hInstance, NULL);
         SendMessageW(hBtnOk, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-        HWND hBtnCancel = CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
+        HWND hBtnCancel = CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP,
             205, 88, 90, 28, hWnd, (HMENU)IDCANCEL, cs->hInstance, NULL);
         SendMessageW(hBtnCancel, WM_SETFONT, (WPARAM)hFont, TRUE);
 
@@ -97,16 +98,46 @@ static LRESULT CALLBACK MovePosDlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
         return 0;
     }
 
-    case WM_CTLCOLORDLG:
+    case WM_ERASEBKGND: {
+        HDC hdc = (HDC)wParam;
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        bool isDark = PDFApp::Instance().IsDarkMode();
+        HBRUSH hBr = CreateSolidBrush(isDark ? RGB(26, 26, 28) : RGB(244, 244, 245));
+        FillRect(hdc, &rc, hBr);
+        DeleteObject(hBr);
+        return 1;
+    }
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        bool isDark = PDFApp::Instance().IsDarkMode();
+        HBRUSH hBr = CreateSolidBrush(isDark ? RGB(26, 26, 28) : RGB(244, 244, 245));
+        FillRect(hdc, &rc, hBr);
+        DeleteObject(hBr);
+        EndPaint(hWnd, &ps);
+        return 0;
+    }
+
+    case WM_CTLCOLORDLG: {
+        bool isDark = PDFApp::Instance().IsDarkMode();
+        static HBRUSH hBrDark = CreateSolidBrush(RGB(26, 26, 28));
+        static HBRUSH hBrLight = CreateSolidBrush(RGB(244, 244, 245));
+        return (LRESULT)(isDark ? hBrDark : hBrLight);
+    }
+
     case WM_CTLCOLORSTATIC: {
         HDC hdcStatic = (HDC)wParam;
         bool isDark = PDFApp::Instance().IsDarkMode();
-        COLORREF bgCol = isDark ? RGB(24, 24, 27) : GetSysColor(COLOR_BTNFACE);
-        COLORREF textCol = isDark ? RGB(244, 244, 245) : RGB(24, 24, 27);
+        SetBkMode(hdcStatic, TRANSPARENT);
+        COLORREF textCol = isDark ? RGB(228, 228, 231) : RGB(24, 24, 27);
         SetTextColor(hdcStatic, textCol);
-        SetBkColor(hdcStatic, bgCol);
-        static HBRUSH hBrDark = CreateSolidBrush(RGB(24, 24, 27));
-        return (LRESULT)(isDark ? hBrDark : (HBRUSH)(COLOR_BTNFACE + 1));
+        static HBRUSH hBrDark = CreateSolidBrush(RGB(26, 26, 28));
+        static HBRUSH hBrLight = CreateSolidBrush(RGB(244, 244, 245));
+        return (LRESULT)(isDark ? hBrDark : hBrLight);
     }
 
     case WM_CTLCOLOREDIT: {
@@ -119,6 +150,54 @@ static LRESULT CALLBACK MovePosDlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
         static HBRUSH hBrDark = CreateSolidBrush(RGB(39, 39, 42));
         static HBRUSH hBrLight = CreateSolidBrush(RGB(255, 255, 255));
         return (LRESULT)(isDark ? hBrDark : hBrLight);
+    }
+
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (!dis) break;
+        bool isDark = PDFApp::Instance().IsDarkMode();
+        bool isPressed = (dis->itemState & ODS_SELECTED) != 0;
+        bool isOk = (dis->CtlID == IDOK);
+
+        // Fill background with dialog bg first to eliminate corner artifacts
+        COLORREF dlgBg = isDark ? RGB(26, 26, 28) : RGB(244, 244, 245);
+        HBRUSH hBrDlgBg = CreateSolidBrush(dlgBg);
+        FillRect(dis->hDC, &dis->rcItem, hBrDlgBg);
+        DeleteObject(hBrDlgBg);
+
+        COLORREF btnBg, borderCol, textCol;
+        if (isOk) {
+            btnBg = isPressed ? RGB(29, 78, 216) : RGB(37, 99, 235);
+            borderCol = isPressed ? RGB(29, 78, 216) : RGB(59, 130, 246);
+            textCol = RGB(255, 255, 255);
+        } else {
+            if (isDark) {
+                btnBg = isPressed ? RGB(24, 24, 27) : RGB(39, 39, 42);
+                borderCol = RGB(63, 63, 70);
+                textCol = RGB(228, 228, 231);
+            } else {
+                btnBg = isPressed ? RGB(228, 228, 231) : RGB(244, 244, 245);
+                borderCol = RGB(212, 212, 216);
+                textCol = RGB(24, 24, 27);
+            }
+        }
+
+        HBRUSH hBr = CreateSolidBrush(btnBg);
+        HPEN hPen = CreatePen(PS_SOLID, 1, borderCol);
+        HBRUSH hOldBr = (HBRUSH)SelectObject(dis->hDC, hBr);
+        HPEN hOldPen = (HPEN)SelectObject(dis->hDC, hPen);
+        RoundRect(dis->hDC, dis->rcItem.left, dis->rcItem.top, dis->rcItem.right, dis->rcItem.bottom, 6, 6);
+        SelectObject(dis->hDC, hOldBr);
+        SelectObject(dis->hDC, hOldPen);
+        DeleteObject(hBr);
+        DeleteObject(hPen);
+
+        WCHAR text[32] = { 0 };
+        GetWindowTextW(dis->hwndItem, text, 32);
+        SetBkMode(dis->hDC, TRANSPARENT);
+        SetTextColor(dis->hDC, textCol);
+        DrawTextW(dis->hDC, text, -1, &dis->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        return TRUE;
     }
     case WM_COMMAND: {
         int id = LOWORD(wParam);
@@ -159,7 +238,7 @@ static bool ShowMoveToPositionDialog(HWND hParent, int totalPages, int currentFi
         wc.hInstance = hInst;
         wc.lpszClassName = L"FeathrPDFMovePosDlgClass";
         wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-        wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+        wc.hbrBackground = NULL;
         RegisterClassExW(&wc);
         registered = true;
     }
@@ -639,25 +718,22 @@ static LRESULT CALLBACK SidebarWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
             HMENU hMenu = CreatePopupMenu();
             int selCount = app.GetSelectedCount();
             std::wstring moveUpText = (selCount > 1) ? 
-                (L"⬆️ Move " + std::to_wstring(selCount) + L" pages up") :
-                L"⬆️ Move up";
+                (L"Move " + std::to_wstring(selCount) + L" pages up") :
+                L"Move up";
             std::wstring moveDownText = (selCount > 1) ? 
-                (L"⬇️ Move " + std::to_wstring(selCount) + L" pages down") :
-                L"⬇️ Move down";
+                (L"Move " + std::to_wstring(selCount) + L" pages down") :
+                L"Move down";
 
             AppendMenuW(hMenu, MF_STRING, 1006, moveUpText.c_str());
             AppendMenuW(hMenu, MF_STRING, 1007, moveDownText.c_str());
-            AppendMenuW(hMenu, MF_STRING, 1008, L"📍 Move to position");
+            AppendMenuW(hMenu, MF_STRING, 1008, L"Move to position");
             AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-            AppendMenuW(hMenu, MF_STRING, 1009, L"➕ Insert PDF Files After This Page");
+            AppendMenuW(hMenu, MF_STRING, 1009, L"Insert PDF Files After This Page");
             AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-            AppendMenuW(hMenu, MF_STRING, 1010, L"📑 Export as New PDF");
-            AppendMenuW(hMenu, MF_STRING, 1001, L"🖼️ Export Selected Pages as JPG");
-            AppendMenuW(hMenu, MF_STRING, 1002, L"📄 Add Blank Page After This Page");
-            AppendMenuW(hMenu, MF_STRING, 1003, L"🗑️ Delete Selected Pages");
-            AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-            AppendMenuW(hMenu, app.CanUndo() ? MF_STRING : (MF_STRING | MF_GRAYED), 1004, L"↶ Undo (Ctrl+Z)");
-            AppendMenuW(hMenu, app.CanRedo() ? MF_STRING : (MF_STRING | MF_GRAYED), 1005, L"↷ Redo (Ctrl+Y)");
+            AppendMenuW(hMenu, MF_STRING, 1010, L"Export as PDF");
+            AppendMenuW(hMenu, MF_STRING, 1001, L"Export as JPG");
+            AppendMenuW(hMenu, MF_STRING, 1002, L"New Page");
+            AppendMenuW(hMenu, MF_STRING, 1003, L"Delete");
 
             POINT pt = { x, y };
             ClientToScreen(hWnd, &pt);

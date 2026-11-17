@@ -170,7 +170,7 @@ static LRESULT CALLBACK ToolPopupWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LP
         int hexY = (g_currentTool == TOOL_PEN) ? 98 : 124;
 
         // Custom Color Button
-        g_hBtnCustomColor = CreateWindowW(L"BUTTON", L"🎨 Custom Color...",
+        g_hBtnCustomColor = CreateWindowW(L"BUTTON", L"Custom Color...",
             WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP,
             16, hexY, 120, 24, hWnd, (HMENU)104, hInst, NULL);
         SendMessageW(g_hBtnCustomColor, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
@@ -414,7 +414,7 @@ static LRESULT CALLBACK ToolPopupWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LP
         // Color grid label
         SelectObject(hdc, g_hFontNormal);
         SetTextColor(hdc, textSecondary);
-        LPCWSTR palLabel = (g_currentTool == TOOL_HIGHLIGHT) ? L"Palette (15 Colors - 3x5):" : L"Palette (16 Colors - Pairs):";
+        LPCWSTR palLabel = L"Palette";
         TextOutW(hdc, 16, 30, palLabel, (int)wcslen(palLabel));
 
         // Swatches

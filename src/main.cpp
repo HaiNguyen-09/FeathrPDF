@@ -141,6 +141,13 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             case 'a':
                 PDFApp::Instance().SelectAllPages();
                 return 0;
+            case 'N':
+            case 'n':
+                if (shift) {
+                    PDFApp::Instance().AddBlankPage(PDFApp::Instance().GetActivePageIndex());
+                    return 0;
+                }
+                break;
             case '0':
                 PDFApp::Instance().SetZoom(1.0f);
                 return 0;
@@ -165,6 +172,17 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
                 return 0;
             }
             }
+        } else if (!shift && (GetKeyState(VK_MENU) >= 0)) {
+            if (wParam == 'E' || wParam == 'e') {
+                PDFApp::Instance().SetTool(PDFApp::Instance().GetTool() == TOOL_ERASER ? TOOL_PAN : TOOL_ERASER);
+                return 0;
+            } else if (wParam == 'H' || wParam == 'h') {
+                PDFApp::Instance().SetTool(PDFApp::Instance().GetTool() == TOOL_HIGHLIGHT ? TOOL_PAN : TOOL_HIGHLIGHT);
+                return 0;
+            } else if (wParam == 'P' || wParam == 'p') {
+                PDFApp::Instance().SetTool(PDFApp::Instance().GetTool() == TOOL_PEN ? TOOL_PAN : TOOL_PEN);
+                return 0;
+            }
         }
         break;
     }
@@ -174,6 +192,20 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             KillTimer(hWnd, 998);
             PDFApp::Instance().UpdateTitleBar();
             return 0;
+        }
+        break;
+    }
+
+    case WM_ACTIVATE: {
+        if (LOWORD(wParam) == WA_INACTIVE) {
+            PDFApp::Instance().DismissGhostPopup();
+        }
+        break;
+    }
+
+    case WM_SYSCOMMAND: {
+        if ((wParam & 0xFFF0) == SC_MINIMIZE) {
+            PDFApp::Instance().DismissGhostPopup();
         }
         break;
     }
@@ -361,6 +393,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
                 } else if (msg.wParam == 'A' || msg.wParam == 'a') {
                     app.SelectAllPages();
                     continue;
+                } else if (msg.wParam == 'N' || msg.wParam == 'n') {
+                    if (shift) {
+                        app.AddBlankPage(app.GetActivePageIndex());
+                        continue;
+                    }
                 } else if (msg.wParam == 'I' || msg.wParam == 'i') {
                     app.AppendPdfFiles();
                     continue;
@@ -379,14 +416,19 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             }
 
             // Non-Ctrl shortcuts: Page Management & View Navigation & Tools
-            if (msg.wParam == 'E' || msg.wParam == 'e') {
-                if (app.GetTool() == TOOL_ERASER) {
-                    app.SetTool(TOOL_PAN);
-                } else {
-                    app.SetTool(TOOL_ERASER);
+            if (!ctrl && !alt) {
+                if (msg.wParam == 'E' || msg.wParam == 'e') {
+                    app.SetTool(app.GetTool() == TOOL_ERASER ? TOOL_PAN : TOOL_ERASER);
+                    continue;
+                } else if (msg.wParam == 'H' || msg.wParam == 'h') {
+                    app.SetTool(app.GetTool() == TOOL_HIGHLIGHT ? TOOL_PAN : TOOL_HIGHLIGHT);
+                    continue;
+                } else if (msg.wParam == 'P' || msg.wParam == 'p') {
+                    app.SetTool(app.GetTool() == TOOL_PEN ? TOOL_PAN : TOOL_PEN);
+                    continue;
                 }
-                continue;
-            } else if (msg.wParam == VK_DELETE || msg.wParam == VK_BACK) {
+            }
+            if (msg.wParam == VK_DELETE || msg.wParam == VK_BACK) {
                 app.DeleteSelectedPages();
                 continue;
             } else if (msg.wParam == VK_INSERT) {

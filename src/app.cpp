@@ -637,58 +637,56 @@ bool PDFApp::OpenDocument(const std::wstring& filePath) {
     m_savedPages = m_activePages;
     m_isModified = false;
 
+    m_zoom = 1.0f;
+    UpdateLayoutFromActivePages();
+    SelectPageSingle(0);
+    ContinuousCanvas::ScrollToPage(m_hWndCanvas, 0);
+    ClearUndoRedo();
+    RefreshAllViews();
+
+    if (m_hWndSidebar && m_sidebarVisible) {
+        NavigationSidebar::ScrollToPage(m_hWndSidebar, 0);
+    }
+
     // Check reading history
     SessionItem session;
     bool hasHistory = SessionHistory::Instance().GetSession(filePath, session);
 
-    bool shouldRestore = false;
     if (hasHistory && session.lastPage > 1 && session.lastPage <= (int)m_activePages.size()) {
         int zoomPercent = (int)std::round(session.zoom * 100.0f);
         if (zoomPercent < 25 || zoomPercent > 600) zoomPercent = 100;
 
-        std::wstring prompt = L"You were previously reading at Page " + std::to_wstring(session.lastPage) + 
-            L" (" + std::to_wstring(zoomPercent) + L"%). Would you like to resume from this page?";
+        std::wstring msg = L"Previously on Page " + std::to_wstring(session.lastPage) + 
+            L" (" + std::to_wstring(zoomPercent) + L"%)";
 
-        int ret = MessageBoxW(m_hWndMain, prompt.c_str(), L"Resume Reading?", MB_YESNO | MB_ICONQUESTION);
-        if (ret == IDYES) {
-            shouldRestore = true;
-        }
-    }
+        int savedPage = session.lastPage;
+        float savedZoom = session.zoom;
+        int savedScrollY = session.scrollY;
 
-    if (shouldRestore) {
-        if (session.zoom >= 0.25f && session.zoom <= 6.0f) {
-            m_zoom = session.zoom;
-        } else {
-            m_zoom = 1.0f;
-        }
-        UpdateLayoutFromActivePages();
+        ShowGhostPopup(msg, L"", true, L"Resume", [this, savedPage, savedZoom, savedScrollY]() {
+            if (savedZoom >= 0.25f && savedZoom <= 6.0f) {
+                this->m_zoom = savedZoom;
+            } else {
+                this->m_zoom = 1.0f;
+            }
+            this->UpdateLayoutFromActivePages();
 
-        int targetPage = session.lastPage - 1;
-        SelectPageSingle(targetPage);
+            int targetPage = savedPage - 1;
+            this->SelectPageSingle(targetPage);
 
-        if (session.scrollY > 0) {
-            ContinuousCanvas::SetScroll(m_hWndCanvas, 0, session.scrollY);
-        } else {
-            ContinuousCanvas::ScrollToPage(m_hWndCanvas, targetPage);
-        }
+            if (savedScrollY > 0) {
+                ContinuousCanvas::SetScroll(this->m_hWndCanvas, 0, savedScrollY);
+            } else {
+                ContinuousCanvas::ScrollToPage(this->m_hWndCanvas, targetPage);
+            }
 
-        ClearUndoRedo();
-        RefreshAllViews();
+            this->ClearUndoRedo();
+            this->RefreshAllViews();
 
-        if (m_hWndSidebar && m_sidebarVisible) {
-            NavigationSidebar::ScrollToPage(m_hWndSidebar, targetPage);
-        }
-    } else {
-        m_zoom = 1.0f;
-        UpdateLayoutFromActivePages();
-        SelectPageSingle(0);
-        ContinuousCanvas::ScrollToPage(m_hWndCanvas, 0);
-        ClearUndoRedo();
-        RefreshAllViews();
-
-        if (m_hWndSidebar && m_sidebarVisible) {
-            NavigationSidebar::ScrollToPage(m_hWndSidebar, 0);
-        }
+            if (this->m_hWndSidebar && this->m_sidebarVisible) {
+                NavigationSidebar::ScrollToPage(this->m_hWndSidebar, targetPage);
+            }
+        });
     }
 
     SaveCurrentSession();
@@ -1407,11 +1405,21 @@ void PDFApp::ExportSelectedPagesToJpg() {
 
     if (isSinglePage) {
         if (successCount > 0) {
-            ShowExtractedJpgSingleDialog(singleFilePath);
+            std::wstring fullPath = singleFilePath;
+            size_t lastSlash = fullPath.find_last_of(L"\\/");
+            std::wstring dirPath = (lastSlash != std::wstring::npos) ? fullPath.substr(0, lastSlash + 1) : fullPath;
+            std::wstring fileName = (lastSlash != std::wstring::npos) ? fullPath.substr(lastSlash + 1) : fullPath;
+
+            ShowGhostPopup(L"Successfully extracted 1 page to " + fileName, dirPath, true, L"Open directory", [fullPath]() {
+                ShellExecuteW(NULL, L"open", L"explorer.exe", (L"/select,\"" + fullPath + L"\"").c_str(), NULL, SW_SHOWNORMAL);
+            });
         }
     } else {
         if (successCount > 0) {
-            ShowExtractedJpgMultiDialog(successCount, targetFolder);
+            std::wstring folder = targetFolder;
+            ShowGhostPopup(L"Successfully extracted " + std::to_wstring(successCount) + L" pages", folder, true, L"Open directory", [folder]() {
+                ShellExecuteW(NULL, L"open", folder.c_str(), NULL, NULL, SW_SHOWNORMAL);
+            });
         }
     }
 }
@@ -1578,13 +1586,17 @@ void PDFApp::ExportSelectedPagesToPdf() {
     SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);
 
     // 6. Notify user of success via custom dialog
-    std::wstring outFileName = szFile;
-    size_t lastSlash = outFileName.find_last_of(L"\\/");
-    if (lastSlash != std::wstring::npos) {
-        outFileName = outFileName.substr(lastSlash + 1);
-    }
+    std::wstring fullPath = szFile;
+    size_t lastSlash = fullPath.find_last_of(L"\\/");
+    std::wstring dirPath = (lastSlash != std::wstring::npos) ? fullPath.substr(0, lastSlash + 1) : fullPath;
+    std::wstring outFileName = (lastSlash != std::wstring::npos) ? fullPath.substr(lastSlash + 1) : fullPath;
 
-    ShowExtractedPdfDialog((int)pagesToExport.size(), szFile, outFileName);
+    int count = (int)pagesToExport.size();
+    std::wstring msg = L"Successfully extracted " + std::to_wstring(count) + L" pages to " + outFileName;
+
+    ShowGhostPopup(msg, dirPath, true, L"Open directory", [fullPath]() {
+        ShellExecuteW(NULL, L"open", L"explorer.exe", (L"/select,\"" + fullPath + L"\"").c_str(), NULL, SW_SHOWNORMAL);
+    });
 }
 
 void PDFApp::SetZoom(float newZoom, bool updateSlider, int anchorX, int anchorY) {
@@ -2657,7 +2669,7 @@ void PDFApp::ShowAboutDialog() {
                 RECT rc = dis->rcItem;
                 bool isPressed = (dis->itemState & ODS_SELECTED) != 0;
 
-                HBRUSH hDlgBg = CreateSolidBrush(isDark ? RGB(24, 24, 27) : RGB(248, 249, 250));
+                HBRUSH hDlgBg = CreateSolidBrush(isDark ? RGB(26, 26, 28) : RGB(244, 244, 245));
                 FillRect(hdc, &rc, hDlgBg);
                 DeleteObject(hDlgBg);
 
@@ -2845,7 +2857,7 @@ static LRESULT CALLBACK ResultDialogProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
         RECT rc = dis->rcItem;
         bool isPressed = (dis->itemState & ODS_SELECTED) != 0;
 
-        HBRUSH hDlgBg = CreateSolidBrush(d->isDark ? RGB(24, 24, 27) : RGB(248, 249, 250));
+        HBRUSH hDlgBg = CreateSolidBrush(d->isDark ? RGB(26, 26, 28) : RGB(244, 244, 245));
         FillRect(hdc, &rc, hDlgBg);
         DeleteObject(hDlgBg);
 
@@ -2932,6 +2944,307 @@ static LRESULT CALLBACK ResultDialogProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
     }
     }
     return DefWindowProcW(hWnd, msg, wParam, lParam);
+}
+
+// ===================================================================
+// Ghost Popup (Toast Notification: frameless, auto-dismiss, themed)
+// ===================================================================
+struct GhostPopupData {
+    std::wstring message;
+    std::wstring subMessage;
+    bool hasAction;
+    std::wstring actionText;
+    std::function<void()> onAction;
+    HFONT hFontNormal;
+    HFONT hFontSub;
+    HFONT hFontBold;
+    bool isDark;
+    HWND hBtnAction;
+};
+
+static HWND s_hGhostWnd = NULL;
+static HHOOK s_hGhostHook = NULL;
+static GhostPopupData* s_pGhostData = NULL;
+
+static LRESULT CALLBACK GhostMouseHookProc(int nCode, WPARAM wParam, LPARAM lParam) {
+    if (nCode >= 0 && s_hGhostWnd && IsWindow(s_hGhostWnd)) {
+        if (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN ||
+            wParam == WM_NCLBUTTONDOWN || wParam == WM_NCRBUTTONDOWN) {
+            MOUSEHOOKSTRUCT* mhs = (MOUSEHOOKSTRUCT*)lParam;
+            RECT rc;
+            GetWindowRect(s_hGhostWnd, &rc);
+            if (!PtInRect(&rc, mhs->pt)) {
+                HWND hGhost = s_hGhostWnd;
+                s_hGhostWnd = NULL;
+                DestroyWindow(hGhost);
+            }
+        }
+    }
+    return CallNextHookEx(s_hGhostHook, nCode, wParam, lParam);
+}
+
+static LRESULT CALLBACK GhostPopupWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    GhostPopupData* d = (GhostPopupData*)GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCT* cs = (CREATESTRUCT*)lParam;
+        d = (GhostPopupData*)cs->lpCreateParams;
+        SetWindowLongPtrW(hWnd, GWLP_USERDATA, (LONG_PTR)d);
+
+        d->hFontNormal = CreateFontW(14, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        d->hFontSub = CreateFontW(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        d->hFontBold = CreateFontW(13, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+
+        DWORD cornerPref = 3; // DWMWCP_ROUNDSMALL
+        DwmSetWindowAttribute(hWnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &cornerPref, sizeof(cornerPref));
+
+        RECT rcClient;
+        GetClientRect(hWnd, &rcClient);
+        int clientW = rcClient.right - rcClient.left;
+        int clientH = rcClient.bottom - rcClient.top;
+
+        if (d && d->hasAction) {
+            int btnW = (d->actionText.length() > 8) ? 108 : 76;
+            int btnH = 28;
+            int btnX = clientW - btnW - 14;
+            int btnY = (clientH - btnH) / 2;
+            d->hBtnAction = CreateWindowW(L"BUTTON", d->actionText.c_str(),
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                btnX, btnY, btnW, btnH,
+                hWnd, (HMENU)201, cs->hInstance, NULL);
+        }
+
+        SetTimer(hWnd, 9901, 5000, NULL);
+        return 0;
+    }
+
+    case WM_TIMER: {
+        if (wParam == 9901) {
+            KillTimer(hWnd, 9901);
+            DestroyWindow(hWnd);
+            return 0;
+        }
+        break;
+    }
+
+    case WM_COMMAND: {
+        int id = LOWORD(wParam);
+        if (id == 201 && d) {
+            auto fn = d->onAction;
+            DestroyWindow(hWnd);
+            if (fn) fn();
+            return 0;
+        }
+        break;
+    }
+
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+        if (dis && dis->CtlID == 201 && d) {
+            bool isPressed = (dis->itemState & ODS_SELECTED) != 0;
+
+            COLORREF popBg = d->isDark ? RGB(30, 30, 32) : RGB(244, 244, 245);
+            HBRUSH hPopBg = CreateSolidBrush(popBg);
+            FillRect(dis->hDC, &dis->rcItem, hPopBg);
+            DeleteObject(hPopBg);
+
+            COLORREF btnBg = isPressed ? RGB(29, 78, 216) : RGB(37, 99, 235);
+            COLORREF borderCol = isPressed ? RGB(29, 78, 216) : RGB(59, 130, 246);
+            COLORREF textCol = RGB(255, 255, 255);
+
+            HBRUSH hBr = CreateSolidBrush(btnBg);
+            HPEN hPen = CreatePen(PS_SOLID, 1, borderCol);
+            HBRUSH hOldBr = (HBRUSH)SelectObject(dis->hDC, hBr);
+            HPEN hOldPen = (HPEN)SelectObject(dis->hDC, hPen);
+            RoundRect(dis->hDC, dis->rcItem.left, dis->rcItem.top, dis->rcItem.right, dis->rcItem.bottom, 6, 6);
+            SelectObject(dis->hDC, hOldBr);
+            SelectObject(dis->hDC, hOldPen);
+            DeleteObject(hBr);
+            DeleteObject(hPen);
+
+            SetBkMode(dis->hDC, TRANSPARENT);
+            SetTextColor(dis->hDC, textCol);
+            HFONT hOldF = (HFONT)SelectObject(dis->hDC, d->hFontBold);
+            DrawTextW(dis->hDC, d->actionText.c_str(), -1, &dis->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            SelectObject(dis->hDC, hOldF);
+            return TRUE;
+        }
+        break;
+    }
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+
+        COLORREF bgCol = (d && d->isDark) ? RGB(30, 30, 32) : RGB(244, 244, 245);
+        COLORREF textCol = (d && d->isDark) ? RGB(244, 244, 245) : RGB(24, 24, 27);
+        COLORREF subTextCol = (d && d->isDark) ? RGB(161, 161, 170) : RGB(113, 113, 122);
+
+        // XÓA BỎ hoàn toàn các lệnh vẽ viền GDI (FrameRect, Rectangle, RoundRect).
+        // Chỉ dùng FillRect tô phẳng toàn bộ nền bằng màu chủ đạo.
+        HBRUSH hBr = CreateSolidBrush(bgCol);
+        FillRect(hdc, &rc, hBr);
+        DeleteObject(hBr);
+
+        if (d) {
+            SetBkMode(hdc, TRANSPARENT);
+            int rightMargin = d->hasAction ? (((d->actionText.length() > 8) ? 108 : 76) + 24) : 16;
+            bool hasSub = !d->subMessage.empty();
+
+            if (!hasSub) {
+                SetTextColor(hdc, textCol);
+                HFONT hOldFont = (HFONT)SelectObject(hdc, d->hFontNormal);
+                RECT rcText = rc;
+                rcText.left += 16;
+                rcText.right -= rightMargin;
+                DrawTextW(hdc, d->message.c_str(), -1, &rcText,
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+                SelectObject(hdc, hOldFont);
+            } else {
+                HFONT hOldFont = (HFONT)SelectObject(hdc, d->hFontNormal);
+                SetTextColor(hdc, textCol);
+                RECT rcLine1 = rc;
+                rcLine1.left += 16;
+                rcLine1.right -= rightMargin;
+                rcLine1.top += 10;
+                rcLine1.bottom = rcLine1.top + 18;
+                DrawTextW(hdc, d->message.c_str(), -1, &rcLine1,
+                    DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+
+                SelectObject(hdc, d->hFontSub);
+                SetTextColor(hdc, subTextCol);
+                RECT rcLine2 = rc;
+                rcLine2.left += 16;
+                rcLine2.right -= rightMargin;
+                rcLine2.top = rcLine1.bottom + 2;
+                rcLine2.bottom = rc.bottom - 8;
+                DrawTextW(hdc, d->subMessage.c_str(), -1, &rcLine2,
+                    DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX | DT_PATH_ELLIPSIS);
+
+                SelectObject(hdc, hOldFont);
+            }
+        }
+
+        EndPaint(hWnd, &ps);
+        return 0;
+    }
+
+    case WM_DESTROY: {
+        if (s_hGhostHook) {
+            UnhookWindowsHookEx(s_hGhostHook);
+            s_hGhostHook = NULL;
+        }
+        if (d) {
+            if (d->hFontNormal) DeleteObject(d->hFontNormal);
+            if (d->hFontSub) DeleteObject(d->hFontSub);
+            if (d->hFontBold) DeleteObject(d->hFontBold);
+            delete d;
+        }
+        s_pGhostData = NULL;
+        s_hGhostWnd = NULL;
+        return 0;
+    }
+    }
+    return DefWindowProcW(hWnd, msg, wParam, lParam);
+}
+
+void PDFApp::DismissGhostPopup() {
+    if (s_hGhostWnd && IsWindow(s_hGhostWnd)) {
+        HWND old = s_hGhostWnd;
+        s_hGhostWnd = NULL;
+        DestroyWindow(old);
+    }
+}
+
+void PDFApp::ShowGhostPopup(const std::wstring& message, const std::wstring& subMessage, bool hasAction, const std::wstring& actionText, std::function<void()> onAction) {
+    if (!m_hWndMain || !IsWindow(m_hWndMain) || IsIconic(m_hWndMain) || GetForegroundWindow() != m_hWndMain) {
+        DismissGhostPopup();
+        return;
+    }
+
+    DismissGhostPopup();
+
+    HINSTANCE hInst = GetModuleHandleW(NULL);
+    static bool s_registered = false;
+    if (!s_registered) {
+        WNDCLASSEXW wc = { sizeof(WNDCLASSEXW) };
+        wc.lpfnWndProc = GhostPopupWndProc;
+        wc.hInstance = hInst;
+        wc.lpszClassName = L"FeathrPDFGhostPopup";
+        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+        RegisterClassExW(&wc);
+        s_registered = true;
+    }
+
+    s_pGhostData = new GhostPopupData();
+    s_pGhostData->message = message;
+    s_pGhostData->subMessage = subMessage;
+    s_pGhostData->hasAction = hasAction;
+    s_pGhostData->actionText = actionText;
+    s_pGhostData->onAction = onAction;
+    s_pGhostData->hFontNormal = NULL;
+    s_pGhostData->hFontSub = NULL;
+    s_pGhostData->hFontBold = NULL;
+    s_pGhostData->isDark = IsDarkMode();
+    s_pGhostData->hBtnAction = NULL;
+
+    HDC hdc = GetDC(m_hWndMain);
+    HFONT hMeasureFont = CreateFontW(14, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    HFONT hOld = (HFONT)SelectObject(hdc, hMeasureFont);
+    SIZE szText;
+    GetTextExtentPoint32W(hdc, message.c_str(), (int)message.length(), &szText);
+
+    SIZE szSub = { 0, 0 };
+    if (!subMessage.empty()) {
+        GetTextExtentPoint32W(hdc, subMessage.c_str(), (int)subMessage.length(), &szSub);
+    }
+    SelectObject(hdc, hOld);
+    DeleteObject(hMeasureFont);
+    ReleaseDC(m_hWndMain, hdc);
+
+    int btnWidth = hasAction ? ((actionText.length() > 8) ? 108 : 76) : 0;
+    int maxTextW = (std::max)(szText.cx, szSub.cx);
+    int popupW = maxTextW + 36;
+    if (hasAction) popupW += btnWidth + 18;
+    if (popupW < 300) popupW = 300;
+    if (popupW > 560) popupW = 560;
+
+    bool hasSub = !subMessage.empty();
+    int popupH = hasSub ? 58 : 46;
+
+    RECT rcMain;
+    GetClientRect(m_hWndMain, &rcMain);
+    POINT ptBottomRight = { rcMain.right - 24, rcMain.bottom - 24 };
+    ClientToScreen(m_hWndMain, &ptBottomRight);
+
+    int posX = ptBottomRight.x - popupW;
+    int posY = ptBottomRight.y - popupH;
+
+    // In-App Only: No WS_EX_TOPMOST! Owned by m_hWndMain (hWndParent = m_hWndMain)
+    s_hGhostWnd = CreateWindowExW(
+        WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        L"FeathrPDFGhostPopup",
+        L"",
+        WS_POPUP | WS_VISIBLE,
+        posX, posY, popupW, popupH,
+        m_hWndMain, NULL, hInst, s_pGhostData
+    );
+
+    if (s_hGhostWnd) {
+        DWORD cornerPref = 3; // DWMWCP_ROUNDSMALL
+        DwmSetWindowAttribute(s_hGhostWnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &cornerPref, sizeof(cornerPref));
+        s_hGhostHook = SetWindowsHookExW(WH_MOUSE, GhostMouseHookProc, NULL, GetCurrentThreadId());
+    }
 }
 
 static void ShowCustomResultDialog(HWND hWndParent, const std::wstring& title, const std::wstring& message, const std::vector<ResultDialogAction>& actions, int dlgWidth = 470, int dlgHeight = 180) {

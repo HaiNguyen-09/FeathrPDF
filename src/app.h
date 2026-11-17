@@ -12,6 +12,7 @@
 #include <map>
 #include <memory>
 #include <algorithm>
+#include <functional>
 #include "fpdfview.h"
 #include "fpdf_edit.h"
 #include "fpdf_annot.h"
@@ -255,6 +256,8 @@ public:
     static void ApplyUxThemeDarkMode(HWND hWnd, bool isDark);
     static void SetWindowTitlebarTheme(HWND hWnd, bool isDark);
     void ShowAboutDialog();
+    void ShowGhostPopup(const std::wstring& message, const std::wstring& subMessage = L"", bool hasAction = false, const std::wstring& actionText = L"", std::function<void()> onAction = nullptr);
+    void DismissGhostPopup();
     void ShowExtractedPdfDialog(int pageCount, const std::wstring& filePath, const std::wstring& fileName);
     void ShowExtractedJpgSingleDialog(const std::wstring& filePath);
     void ShowExtractedJpgMultiDialog(int pageCount, const std::wstring& folderPath);
