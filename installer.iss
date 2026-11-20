@@ -4,19 +4,20 @@
 ; ===================================================================
 
 #define MyAppName "FeathrPDF"
-#define MyAppVersion "1.0.0"
-#define MyAppPublisher "FeathrPDF Team"
+#define MyAppVersion "1.2"
+#define MyAppPublisher "h_nguynn0."
 #define MyAppExeName "FeathrPDF.exe"
 
 [Setup]
 AppId={{B4C83244-6C0F-4D2A-9A3E-74B6A68D5D01}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+AppVerName={#MyAppName}
 AppPublisher={#MyAppPublisher}
-VersionInfoVersion=1.0.0.0
-VersionInfoCompany=FeathrPDF
+VersionInfoVersion=1.2.0.0
+VersionInfoCompany=h_nguynn0.
 VersionInfoDescription=FeathrPDF Setup
-VersionInfoCopyright=Copyright (C) 2026 FeathrPDF
+VersionInfoCopyright=Copyright (C) 2026 h_nguynn0. All rights reserved.
 DefaultDirName={localappdata}\Programs\{#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest

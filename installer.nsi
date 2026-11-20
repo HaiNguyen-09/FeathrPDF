@@ -12,22 +12,22 @@ SetCompressor /SOLID lzma
 
 ; --- Thông tin ứng dụng ---
 !define PRODUCT_NAME "FeathrPDF"
-!define PRODUCT_VERSION "1.0.0"
-!define PRODUCT_PUBLISHER "FeathrPDF Team"
+!define PRODUCT_VERSION "1.2"
+!define PRODUCT_PUBLISHER "h_nguynn0."
 !define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
 !define PRODUCT_PROGID "FeathrPDF.Document"
 
 ; --- Version / Metadata Resource for Windows Defender & Authenticode compliance ---
-VIProductVersion "1.0.0.0"
-VIFileVersion "1.0.0.0"
+VIProductVersion "1.2.0.0"
+VIFileVersion "1.2.0.0"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey "ProductVersion" "${PRODUCT_VERSION}"
-VIAddVersionKey "CompanyName" "FeathrPDF"
-VIAddVersionKey "LegalCopyright" "Copyright (C) 2026 FeathrPDF"
+VIAddVersionKey "CompanyName" "${PRODUCT_PUBLISHER}"
+VIAddVersionKey "LegalCopyright" "Copyright (C) 2026 h_nguynn0. All rights reserved."
 VIAddVersionKey "FileDescription" "FeathrPDF Setup"
-VIAddVersionKey "FileVersion" "1.0.0.0"
+VIAddVersionKey "FileVersion" "1.2.0.0"
 
-Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
+Name "${PRODUCT_NAME}"
 OutFile "FeathrPDF_Setup.exe"
 InstallDir "$LOCALAPPDATA\Programs\${PRODUCT_NAME}"
 RequestExecutionLevel user

@@ -22,6 +22,13 @@
 #define IDC_BTN_PRINT           1013
 #define IDC_BTN_CANCEL          1014
 
+#ifndef ECM_FIRST
+#define ECM_FIRST 0x1500
+#endif
+#ifndef EM_SETCUEBANNER
+#define EM_SETCUEBANNER (ECM_FIRST + 1)
+#endif
+
 static PrintOptions g_dialogOptions;
 static bool g_dialogResult = false;
 static HFONT g_hDlgFont = NULL;
@@ -462,10 +469,26 @@ static LRESULT CALLBACK PrintDialogProc(HWND hWnd, UINT msg, WPARAM wParam, LPAR
         } else if (id >= IDC_RADIO_ALL && id <= IDC_RADIO_CUSTOM) {
             BOOL isCustom = (SendMessageW(GetDlgItem(hWnd, IDC_RADIO_CUSTOM), BM_GETCHECK, 0, 0) == BST_CHECKED);
             HWND hCustomEdit = GetDlgItem(hWnd, IDC_EDIT_CUSTOM);
-            EnableWindow(hCustomEdit, isCustom);
+            if (isCustom) {
+                SetFocus(hCustomEdit);
+            }
             InvalidateRect(hCustomEdit, NULL, TRUE);
             UpdateLivePreview(hWnd);
         } else if (id == IDC_EDIT_CUSTOM && code == EN_CHANGE) {
+            WCHAR customBuf[256] = { 0 };
+            GetWindowTextW(GetDlgItem(hWnd, IDC_EDIT_CUSTOM), customBuf, 256);
+            bool hasChar = false;
+            for (int i = 0; customBuf[i] != L'\0'; ++i) {
+                if (!iswspace(customBuf[i])) {
+                    hasChar = true;
+                    break;
+                }
+            }
+            if (hasChar) {
+                SendMessageW(GetDlgItem(hWnd, IDC_RADIO_ALL), BM_SETCHECK, BST_UNCHECKED, 0);
+                SendMessageW(GetDlgItem(hWnd, IDC_RADIO_SELECTED), BM_SETCHECK, BST_UNCHECKED, 0);
+                SendMessageW(GetDlgItem(hWnd, IDC_RADIO_CUSTOM), BM_SETCHECK, BST_CHECKED, 0);
+            }
             UpdateLivePreview(hWnd);
         } else if (id == IDC_COMBO_SUBSET && code == CBN_SELCHANGE) {
             UpdateLivePreview(hWnd);
@@ -637,9 +660,10 @@ bool PDFPrinter::ShowPrintDialog(HWND hWndParent, PrintOptions& outOptions) {
     HWND hRadCustom = CreateWindowW(L"BUTTON", L"Pages:", WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON, 35, 100, 80, 22, hDlg, (HMENU)IDC_RADIO_CUSTOM, NULL, NULL);
     SetCtrlFont(hRadCustom);
 
-    HWND hEditCustom = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"1-5 ; 1-5, 8", WS_CHILD | WS_VISIBLE | WS_DISABLED, 120, 99, 425, 24, hDlg, (HMENU)IDC_EDIT_CUSTOM, NULL, NULL);
+    HWND hEditCustom = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, 120, 99, 425, 24, hDlg, (HMENU)IDC_EDIT_CUSTOM, NULL, NULL);
     SetCtrlFont(hEditCustom);
     SetWindowSubclass(hEditCustom, FlatBorderSubclassProc, IDC_EDIT_CUSTOM, 0);
+    SendMessageW(hEditCustom, EM_SETCUEBANNER, TRUE, (LPARAM)L"e.g. 1-5, 8");
 
     // Subset: All pages / Odd pages only / Even pages only
     HWND hLblFilter = CreateWindowW(L"STATIC", L"Subset:", WS_CHILD | WS_VISIBLE, 35, 131, 80, 20, hDlg, NULL, NULL, NULL);
